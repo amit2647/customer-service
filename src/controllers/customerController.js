@@ -103,6 +103,49 @@ async function getCustomers(req, res) {
 
 /*
  * =========================================================
+ * VALIDATE CUSTOMER
+ * =========================================================
+ *
+ * Used by other services to verify that a customer exists
+ * and belongs to the authenticated organization.
+ *
+ * Only validation information is returned.
+ * =========================================================
+ */
+
+async function validateCustomer(req, res) {
+  try {
+    const exists = await customerService.customerExists(
+      req.params.id,
+      req.auth.organizationId,
+      req.auth.userId,
+      req.auth.role,
+    );
+
+    if (!exists) {
+      return res.status(404).json({
+        valid: false,
+        error: "Customer not found",
+      });
+    }
+
+    return res.json({
+      valid: true,
+      customerId: Number(req.params.id),
+      organizationId: req.auth.organizationId,
+    });
+  } catch (error) {
+    console.error("[ERROR] Error validating customer:", error);
+
+    return res.status(error.statusCode || 500).json({
+      valid: false,
+      error: error.statusCode ? error.message : "Failed to validate customer",
+    });
+  }
+}
+
+/*
+ * =========================================================
  * GET CUSTOMER
  * =========================================================
  */
@@ -510,6 +553,7 @@ async function deleteCustomer(req, res) {
 module.exports = {
   health,
   getCustomers,
+  validateCustomer,
   getCustomer,
   createCustomer,
   createCustomerFromLead,

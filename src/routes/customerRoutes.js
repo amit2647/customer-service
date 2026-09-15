@@ -22,6 +22,13 @@ router.get(
 );
 
 router.get(
+  "/customers/:id/validate",
+  authenticate,
+  requirePermission("customers.read"),
+  controller.validateCustomer,
+);
+
+router.get(
   "/customers/:id",
   authenticate,
   requirePermission("customers.read"),

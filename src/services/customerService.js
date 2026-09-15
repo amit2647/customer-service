@@ -373,6 +373,44 @@ async function getAllCustomers(
 
 /*
  * =========================================================
+ * CHECK CUSTOMER EXISTS / ACCESSIBLE
+ * =========================================================
+ *
+ * Used by other services that need to validate a customer
+ * without retrieving the complete customer record.
+ *
+ * Tenant isolation is enforced through organizationId.
+ *
+ * Sales Representatives can only validate their own
+ * customers.
+ * =========================================================
+ */
+
+async function customerExists(customerId, organizationId, userId, role) {
+  const values = [customerId, organizationId];
+
+  let query = `
+    SELECT id
+    FROM customers
+    WHERE id = $1
+      AND organization_id = $2
+  `;
+
+  if (role === "SALES_REP") {
+    values.push(userId);
+
+    query += `
+      AND owner_user_id = $${values.length}
+    `;
+  }
+
+  const result = await pool.query(query, values);
+
+  return result.rows.length > 0;
+}
+
+/*
+ * =========================================================
  * GET CUSTOMER BY ID
  * =========================================================
  */
@@ -1066,6 +1104,7 @@ async function deleteCustomer(customerId, organizationId, userId, role) {
 module.exports = {
   checkHealth,
   getAllCustomers,
+  customerExists,
   getCustomerById,
   createCustomer,
   createCustomerFromLead,
