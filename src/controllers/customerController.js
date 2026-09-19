@@ -1,4 +1,5 @@
 const customerService = require("../services/customerService");
+const { notifyAutomation } = require("../services/automationNotifier");
 const { normalizeServiceIds } = require("../utils/serviceIds");
 
 /*
@@ -257,6 +258,15 @@ async function createCustomer(req, res) {
       },
       token,
     );
+
+    // Not awaited: see lead-service. Conversion raises lead.converted instead,
+    // so a converted lead does not also fire customer.created.
+    notifyAutomation({
+      event: "customer.created",
+      dedupeKey: `customer.created:${customer.id}`,
+      payload: { customer, userId: req.auth.userId },
+      authorizationToken: token,
+    });
 
     res.status(201).json(customer);
   } catch (error) {
