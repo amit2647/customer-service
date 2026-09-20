@@ -1,6 +1,8 @@
 const jwt = require("jsonwebtoken");
 
-function authenticate(req, res, next) {
+const { mergeAccessGrants } = require("./accessGrants");
+
+async function authenticate(req, res, next) {
   try {
     const authorization = req.headers.authorization;
 
@@ -40,6 +42,10 @@ function authenticate(req, res, next) {
         ? decoded.permissions
         : [],
     };
+
+    // Live lookup: a revoked grant must stop working immediately, not
+    // when the eight-hour token happens to expire.
+    await mergeAccessGrants(req.auth);
 
     next();
   } catch (error) {
