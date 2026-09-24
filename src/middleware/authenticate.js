@@ -31,7 +31,7 @@ async function authenticate(req, res, next) {
     }
 
     const decoded = jwt.verify(token, secret, {
-      issuer: "omnicore-identity-service",
+      issuer: process.env.JWT_ISSUER || "omnicore-identity-service",
     });
 
     req.auth = {
