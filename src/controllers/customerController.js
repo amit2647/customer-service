@@ -1,3 +1,5 @@
+const profileService = require("../services/profileService");
+const { installedBundle } = require("../services/bundleContext");
 const customerService = require("../services/customerService");
 const { notifyAutomation } = require("../services/automationNotifier");
 const { normalizeServiceIds } = require("../utils/serviceIds");
@@ -90,9 +92,16 @@ async function getCustomers(req, res) {
       req.auth.role,
       q,
       token,
+      { includeArchived: req.query.archived === "true" },
     );
 
-    res.json(customers);
+    // Identifiers for the list's PAN/CIN column (DASH-04); none without a bundle.
+    const identifiers = await profileService.identifiersFor(
+      req.auth.organizationId,
+      customers.map((customer) => customer.id),
+    );
+
+    res.json(customers.map((customer) => ({ ...customer, identifiers: identifiers.get(customer.id) || {} })));
   } catch (error) {
     console.error("[ERROR] Error fetching customers:", error);
 
@@ -173,7 +182,13 @@ async function getCustomer(req, res) {
       });
     }
 
-    res.json(customer);
+    // Identifiers come with the client; people and bank accounts only to
+    // those who may read a client's private details.
+    const profile = await profileService.readProfile(req.auth.organizationId, customer.id, {
+      withPrivate: req.auth.permissions.includes("profiles.read"),
+    });
+
+    res.json({ ...customer, ...profile });
   } catch (error) {
     console.error("[ERROR] Error fetching customer:", error);
 
@@ -198,6 +213,7 @@ async function createCustomer(req, res) {
       phone,
       segment = "Standard",
       serviceIds = [],
+      profile,
     } = req.body;
 
     /*
@@ -234,6 +250,29 @@ async function createCustomer(req, res) {
     const token = getAuthorizationToken(req);
 
     /*
+     * A profession profile (the client wizard) is checked against the
+     * organization's bundle first, then saved inside the same transaction
+     * as the client itself.
+     */
+    let extend;
+
+    if (profile !== undefined) {
+      if (!req.auth.permissions.includes("profiles.update")) {
+        return res.status(403).json({ error: "Insufficient permissions", requiredPermission: "profiles.update" });
+      }
+
+      const bundle = await installedBundle(req.auth.organizationId, token);
+
+      if (!bundle) {
+        return res.status(400).json({ error: "A client profile needs a profession bundle installed" });
+      }
+
+      const checked = profileService.validateProfile(bundle, profile || {}, { creating: true });
+
+      extend = (client, created) => profileService.writeProfile(client, req.auth.organizationId, created.id, checked);
+    }
+
+    /*
      * IMPORTANT:
      *
      * organizationId and ownerUserId come from
@@ -257,6 +296,7 @@ async function createCustomer(req, res) {
         serviceIds: normalizedServiceIds,
       },
       token,
+      { extend },
     );
 
     // Not awaited: see lead-service. Conversion raises lead.converted instead,
@@ -274,6 +314,7 @@ async function createCustomer(req, res) {
 
     res.status(error.statusCode || 500).json({
       error: error.statusCode ? error.message : "Failed to create customer",
+      ...(error.details ? { details: error.details } : {}),
     });
   }
 }
@@ -286,7 +327,32 @@ async function createCustomer(req, res) {
 
 async function updateCustomer(req, res) {
   try {
-    const { name, company, email, phone, segment } = req.body;
+    const { name, company, email, phone, segment, profile } = req.body;
+
+    /*
+     * Archived and locked clients are protected for every write (both only
+     * ever exist in organizations with a bundle).
+     */
+    await profileService.assertWritable(req.auth.organizationId, Number(req.params.id), req.auth.permissions);
+
+    if (profile !== undefined) {
+      if (!req.auth.permissions.includes("profiles.update")) {
+        return res.status(403).json({ error: "Insufficient permissions", requiredPermission: "profiles.update" });
+      }
+
+      const bundle = await installedBundle(req.auth.organizationId, getAuthorizationToken(req));
+
+      if (!bundle) {
+        return res.status(400).json({ error: "A client profile needs a profession bundle installed" });
+      }
+
+      await profileService.updateProfile(
+        { organizationId: req.auth.organizationId, userId: req.auth.userId, permissions: req.auth.permissions },
+        bundle,
+        Number(req.params.id),
+        { ...profile, core: { name, company, email, phone } },
+      );
+    }
 
     /*
      * Validate name if supplied.
@@ -328,6 +394,7 @@ async function updateCustomer(req, res) {
 
     res.status(error.statusCode || 500).json({
       error: error.statusCode ? error.message : "Failed to update customer",
+      ...(error.details ? { details: error.details } : {}),
     });
   }
 }
@@ -525,6 +592,23 @@ async function updateCustomerServices(req, res) {
 
 async function deleteCustomer(req, res) {
   try {
+    /*
+     * With a profession bundle, delete archives: the client disappears from
+     * every list but its records are kept, and only an archived client can
+     * be purged. Without one, delete works as it always has.
+     */
+    const bundle = await installedBundle(req.auth.organizationId, getAuthorizationToken(req));
+
+    if (bundle) {
+      await profileService.setArchived(
+        { organizationId: req.auth.organizationId, userId: req.auth.userId, permissions: req.auth.permissions },
+        Number(req.params.id),
+        true,
+      );
+
+      return res.json({ message: "Customer archived", id: Number(req.params.id), archived: true });
+    }
+
     const customer = await customerService.deleteCustomer(
       req.params.id,
 

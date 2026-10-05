@@ -237,6 +237,7 @@ async function getAllCustomers(
   role,
   search = "",
   authorizationToken,
+  { includeArchived = false } = {},
 ) {
   const q = search.trim();
 
@@ -254,6 +255,10 @@ async function getAllCustomers(
       c.email,
       c.phone,
       c.segment,
+      c.address,
+      c.attributes,
+      c.locked_at,
+      c.archived_at,
       c.created_at,
       c.updated_at,
 
@@ -272,6 +277,10 @@ async function getAllCustomers(
 
     WHERE c.organization_id = $1
   `;
+
+  // Archived clients (organizations with a bundle only) are hidden unless
+  // asked for; nothing else is ever archived.
+  query += includeArchived ? " AND c.archived_at IS NOT NULL" : " AND c.archived_at IS NULL";
 
   /*
    * Sales Representatives can only see
@@ -299,6 +308,10 @@ async function getAllCustomers(
         OR c.company ILIKE $${values.length}
         OR c.email ILIKE $${values.length}
         OR c.phone ILIKE $${values.length}
+        OR EXISTS (
+          SELECT 1 FROM customer_identifiers ci
+          WHERE ci.customer_id = c.id AND ci.value ILIKE $${values.length}
+        )
       )
     `;
   }
@@ -434,6 +447,12 @@ async function getCustomerById(
       email,
       phone,
       segment,
+      address,
+      notes,
+      attributes,
+      attributes_version,
+      locked_at,
+      archived_at,
       created_at,
       updated_at
     FROM customers
@@ -492,7 +511,12 @@ async function getCustomerById(
  * =========================================================
  */
 
-async function createCustomer(data, authorizationToken) {
+/*
+ * `extend(client, customer)`, when given, runs inside the same transaction
+ * just before it commits — how a client's profession profile is saved
+ * together with the client, so a refused PAN leaves no half-created client.
+ */
+async function createCustomer(data, authorizationToken, { extend } = {}) {
   /*
    * Normalize service IDs.
    */
@@ -574,6 +598,10 @@ async function createCustomer(data, authorizationToken) {
         `,
         [customer.id, serviceId],
       );
+    }
+
+    if (extend) {
+      await extend(client, customer);
     }
 
     await client.query("COMMIT");

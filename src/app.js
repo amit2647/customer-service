@@ -3,6 +3,7 @@ const cors = require("cors");
 
 const requestLogger = require("./middleware/requestLogger");
 const customerRoutes = require("./routes/customerRoutes");
+const profileRoutes = require("./routes/profileRoutes");
 
 const app = express();
 
@@ -18,6 +19,8 @@ app.get("/health", (req, res) => {
   });
 });
 
+// Fixed paths like /customers/identifiers/check must match before /customers/:id.
+app.use(profileRoutes);
 app.use(customerRoutes);
 
 module.exports = app;
