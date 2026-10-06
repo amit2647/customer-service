@@ -453,6 +453,7 @@ async function getCustomerById(
       attributes_version,
       locked_at,
       archived_at,
+      source_lead_id,
       created_at,
       updated_at
     FROM customers
@@ -681,6 +682,25 @@ async function createCustomerFromLead(data, authorizationToken) {
     let customer = null;
 
     /*
+     * A lead becomes at most one customer (customers.source_lead_id is
+     * unique). A retried conversion therefore finds the customer it already
+     * made instead of creating a second one.
+     */
+
+    if (data.leadId) {
+      const linked = await client.query(
+        `SELECT * FROM customers WHERE organization_id = $1 AND source_lead_id = $2`,
+        [data.organizationId, data.leadId],
+      );
+
+      if (linked.rows.length > 0) {
+        customer = linked.rows[0];
+
+        console.log(`[CONVERT] Lead ${data.leadId} already became customer id=${customer.id}`);
+      }
+    }
+
+    /*
      * =======================================================
      * FIND EXISTING CUSTOMER
      * =======================================================
@@ -688,7 +708,7 @@ async function createCustomerFromLead(data, authorizationToken) {
      * Email uniqueness is scoped to the organization.
      */
 
-    if (data.email) {
+    if (!customer && data.email) {
       const existingCustomerResult = await client.query(
         `
         SELECT
@@ -714,6 +734,25 @@ async function createCustomerFromLead(data, authorizationToken) {
         customer = existingCustomerResult.rows[0];
 
         console.log(`[CONVERT] Existing customer found id=${customer.id}`);
+
+        // The lead it came from, unless it was already won from another one;
+        // the lead's notes, unless it has its own.
+        if (data.leadId || data.notes) {
+          const updated = await client.query(
+            `
+            UPDATE customers
+            SET
+              source_lead_id = COALESCE(source_lead_id, $3),
+              notes = CASE WHEN COALESCE(notes, '') = '' THEN $4 ELSE notes END,
+              updated_at = NOW()
+            WHERE id = $1 AND organization_id = $2
+            RETURNING id, organization_id, owner_user_id, name, company, email, phone, segment, notes, source_lead_id, created_at, updated_at
+            `,
+            [customer.id, data.organizationId, data.leadId || null, data.notes?.trim() || null],
+          );
+
+          customer = updated.rows[0];
+        }
       }
     }
 
@@ -734,10 +773,12 @@ async function createCustomerFromLead(data, authorizationToken) {
           company,
           email,
           phone,
-          segment
+          segment,
+          notes,
+          source_lead_id
         )
         VALUES
-        ($1, $2, $3, $4, $5, $6, $7)
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING *
         `,
         [
@@ -748,6 +789,8 @@ async function createCustomerFromLead(data, authorizationToken) {
           data.email?.trim() || null,
           data.phone?.trim() || null,
           data.segment || "Standard",
+          data.notes?.trim() || null,
+          data.leadId || null,
         ],
       );
 
@@ -807,6 +850,16 @@ async function createCustomerFromLead(data, authorizationToken) {
     };
   } catch (error) {
     await client.query("ROLLBACK");
+
+    // Two conversions of one lead at once: the other one made the customer.
+    if (error.code === "23505" && error.constraint === "uq_customers_source_lead") {
+      const linked = await pool.query(
+        `SELECT * FROM customers WHERE organization_id = $1 AND source_lead_id = $2`,
+        [data.organizationId, data.leadId],
+      );
+
+      if (linked.rows[0]) return { ...linked.rows[0], services: [] };
+    }
 
     throw error;
   } finally {

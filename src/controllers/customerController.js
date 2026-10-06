@@ -462,7 +462,15 @@ async function getCustomerServices(req, res) {
 
 async function createCustomerFromLead(req, res) {
   try {
-    const { name, company, email, phone, serviceIds = [] } = req.body;
+    const { name, company, email, phone, notes, leadId, serviceIds = [] } = req.body;
+
+    if (leadId !== undefined && (!Number.isInteger(leadId) || leadId <= 0)) {
+      return res.status(400).json({ error: "leadId must be a positive integer" });
+    }
+
+    if (notes !== undefined && notes !== null && typeof notes !== "string") {
+      return res.status(400).json({ error: "notes must be text" });
+    }
 
     /*
      * Validate name.
@@ -510,6 +518,8 @@ async function createCustomerFromLead(req, res) {
         company,
         email,
         phone,
+        notes,
+        leadId,
 
         serviceIds: normalizedServiceIds,
       },
