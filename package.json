@@ -12,6 +12,7 @@
     "dependencies": {
         "bundle-sdk": "https://codeload.github.com/amit2647/bundle-sdk/tar.gz/572a3c251063c08b6578b54e414a737c261ce575",
         "cors": "^2.8.5",
+        "csv-parse": "^7.0.3",
         "express": "^5.1.0",
         "jsonwebtoken": "^9.0.3",
         "pg": "^8.16.3"
