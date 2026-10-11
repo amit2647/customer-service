@@ -1,6 +1,5 @@
 const { describe, test, before, after, beforeEach, mock } = require("node:test");
 const assert = require("node:assert/strict");
-const jwt = require("jsonwebtoken");
 
 /*
  * A client's profession profile. The bundle is the CA shape in miniature;
@@ -8,8 +7,10 @@ const jwt = require("jsonwebtoken");
  * GET /bundles/installed.
  */
 
-process.env.JWT_SECRET = "unit-test-secret";
-process.env.JWT_ISSUER = "unit-test-issuer";
+// Hydra's tokens, signed with a test key served as a stubbed JWKS.
+const hydra = require("./helpers/hydraToken");
+
+before(() => hydra.ready);
 process.env.BUNDLE_SERVICE_URL = "http://bundle-service.test";
 
 const BUNDLE = {
@@ -200,7 +201,7 @@ describe("routes", () => {
   const call = (method, path, permissions) =>
     realFetch(`${base}${path}`, {
       method,
-      headers: { Authorization: `Bearer ${jwt.sign({ sub: 1, organizationId: 3, role: "X", permissions }, process.env.JWT_SECRET, { issuer: process.env.JWT_ISSUER })}` },
+      headers: { Authorization: `Bearer ${hydra.sign({ sub: 1, organizationId: 3, role: "X", permissions })}` },
     });
 
   test("answer 'not enabled' for an organization without a bundle", async () => {

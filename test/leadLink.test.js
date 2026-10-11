@@ -1,6 +1,5 @@
 const { test, before, after, beforeEach, mock } = require("node:test");
 const assert = require("node:assert/strict");
-const jwt = require("jsonwebtoken");
 
 /*
  * The customer's side of the lead ↔ customer link (migration 017): a retried
@@ -9,8 +8,10 @@ const jwt = require("jsonwebtoken");
  * caller's organization. The database is an in-memory stand-in.
  */
 
-process.env.JWT_SECRET = "unit-test-secret";
-process.env.JWT_ISSUER = "unit-test-issuer";
+// Hydra's tokens, signed with a test key served as a stubbed JWKS.
+const hydra = require("./helpers/hydraToken");
+
+before(() => hydra.ready);
 
 let customers;
 let nextId;
@@ -113,7 +114,7 @@ const link = (customerId, body, permissions = ["customers.update"], organization
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${jwt.sign({ sub: 7, organizationId, role: "X", permissions }, process.env.JWT_SECRET, { issuer: process.env.JWT_ISSUER })}`,
+      Authorization: `Bearer ${hydra.sign({ sub: 7, organizationId, role: "X", permissions })}`,
     },
     body: JSON.stringify(body),
   });
