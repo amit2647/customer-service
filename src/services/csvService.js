@@ -21,7 +21,9 @@ const profileService = require("./profileService");
  */
 
 const PEOPLE = 3;
-const MAX_ROWS = 1000;
+// The most rows one import takes (CSV_IMPORT_MAX_ROWS); the body's size cap is
+// CSV_IMPORT_MAX_MB on the route.
+const MAX_ROWS = Number(process.env.CSV_IMPORT_MAX_ROWS) || 1000;
 const BANK_COLUMNS = ["bank_name", "bank_branch", "bank_account_number", "bank_ifsc", "bank_account_type", "bank_holder"];
 
 function httpError(statusCode, message, details) {

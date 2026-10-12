@@ -43,7 +43,7 @@ router.post(
   requirePermission("customers.create"),
   requirePermission("profiles.update"),
   requireBundle,
-  express.text({ type: ["text/csv", "text/plain", "application/csv"], limit: "2mb" }),
+  express.text({ type: ["text/csv", "text/plain", "application/csv"], limit: `${Number(process.env.CSV_IMPORT_MAX_MB) || 2}mb` }),
   csvRoute(async (req, res) => {
     if (typeof req.body !== "string") {
       return res.status(400).json({ error: "Send the file as text/csv" });
